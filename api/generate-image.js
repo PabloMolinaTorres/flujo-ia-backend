@@ -1,4 +1,12 @@
 export default async function handler(req, res) {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+
+  if (req.method === "OPTIONS") {
+    return res.status(204).end();
+  }
+
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Método no permitido." });
   }
@@ -30,12 +38,22 @@ export default async function handler(req, res) {
     }
 
     if (!sku || !prompt || !pos1Url) {
-      return res.status(400).json({ error: "Faltan datos obligatorios." });
+      return res.status(400).json({ error: "Faltan datos obligatorios: sku, prompt o pos1Url." });
     }
 
-    const pos1Response = await fetch(pos1Url);
+    const cleanOption = Number(optionNumber || 1);
+    const finalOption = cleanOption === 2 ? 2 : 1;
+
+    const pos1Response = await fetch(pos1Url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 FlujoIA/1.0"
+      }
+    });
+
     if (!pos1Response.ok) {
-      return res.status(400).json({ error: "No se pudo descargar la referencia POS1." });
+      return res.status(400).json({
+        error: `No se pudo descargar la referencia POS1. Estado: ${pos1Response.status}`
+      });
     }
 
     const inputMimeType = pos1Response.headers.get("content-type") || "image/jpeg";
@@ -45,7 +63,7 @@ export default async function handler(req, res) {
     const finalPrompt = `
 ${prompt}
 
-Instrucciones adicionales:
+Instrucciones adicionales para la generación IA:
 - Usa la imagen adjunta como referencia real del producto.
 - Mantén forma, proporciones, color, logos, textos, estampados, materialidad y detalles reales del producto.
 - No cambies el diseño del producto.
@@ -56,8 +74,8 @@ Instrucciones adicionales:
 - Estilo fotográfico profesional.
 - No agregar texto extra ni marcas de agua.
 - Relación de aspecto 1:1.
-- Calidad alta.
-- Esta es la opción ${optionNumber} de 2, por lo tanto debe sentirse distinta a la otra propuesta.
+- Tamaño/calidad objetivo: 2K.
+- Esta es la opción ${finalOption} de 2, por lo tanto debe sentirse distinta a la otra propuesta.
 `.trim();
 
     const geminiResponse = await fetch(
@@ -94,7 +112,7 @@ Instrucciones adicionales:
       }
     );
 
-    const geminiData = await geminiResponse.json();
+    const geminiData = await geminiResponse.json().catch(() => ({}));
 
     if (!geminiResponse.ok) {
       return res.status(geminiResponse.status).json({
@@ -112,10 +130,10 @@ Instrucciones adicionales:
     }
 
     const outputMimeType = imagePart.inlineData.mimeType || "image/png";
-    const ext = outputMimeType.includes("jpeg") ? "jpg" : "png";
+    const ext = outputMimeType.includes("jpeg") || outputMimeType.includes("jpg") ? "jpg" : "png";
     const imageBase64 = imagePart.inlineData.data;
 
-    const fileName = `${sku}_${optionNumber === 1 ? "005" : "006"}.${ext}`;
+    const fileName = `${sku}_${finalOption === 1 ? "005" : "006"}.${ext}`;
 
     return res.status(200).json({
       ok: true,
@@ -125,6 +143,7 @@ Instrucciones adicionales:
     });
   } catch (error) {
     console.error("generate-image error:", error);
+
     return res.status(500).json({
       error: error.message || "Error interno del servidor."
     });
