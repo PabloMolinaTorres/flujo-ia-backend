@@ -43,7 +43,7 @@ function buildPayload({ finalPrompt, inputMimeType, inputBase64 }, mode) {
   }
 
   if (mode === "minimal") {
-    // Sin aspectRatio/imageSize. Lo dejamos en el prompt para evitar error de enum/config.
+    // Sin aspectRatio/imageSize. El prompt conserva la instrucción 1:1 / 2K.
   }
 
   return base;
@@ -117,6 +117,51 @@ async function callGemini({ finalPrompt, inputMimeType, inputBase64 }) {
   throw error;
 }
 
+function buildEnhancedPrompt({ prompt, sku, finalOption }) {
+  const sceneDirection = finalOption === 1
+    ? `
+SCENE VARIANT 1:
+Create a clean premium lifestyle composition. Use a modern, elegant, neutral setting with soft natural light. Keep the scene simple, polished, and commercial, similar to a high-end ecommerce hero image.`
+    : `
+SCENE VARIANT 2:
+Create a warmer contextual lifestyle composition. Use a realistic home environment related to the product use, with tasteful props and depth, but without distracting from the product.`;
+
+  return `
+You are creating a professional ecommerce lifestyle image for a retail product.
+
+SOURCE PRODUCT:
+Use the attached product image as the strict visual reference. The product identity must remain the same.
+
+PRODUCT BRIEF FROM THE TEAM:
+${prompt}
+
+CORE REQUIREMENTS:
+- Preserve the product exactly from the reference image.
+- Do not change the product shape, proportions, size relationship, color palette, material, texture, label, logo, typography, printed graphics, pattern, decorations, or visible details.
+- Do not invent new logos, new text, new labels, new packaging, new colors, or new product variants.
+- Do not deform, melt, stretch, blur, crop, hide, duplicate unnecessarily, or replace the product.
+- The product must remain the main hero object and must be clearly visible.
+- The image must look like a real professional product photo, not a render, not a collage, not an illustration.
+- Use realistic lighting, realistic shadows, natural reflections, and coherent perspective.
+- The environment must help explain the use or mood of the product while keeping a clean ecommerce aesthetic.
+- Avoid clutter, busy backgrounds, distracting props, hands, people, faces, price tags, promotions, watermarks, extra text, UI elements, or brand logos not present on the product.
+- If the product has readable label/text, keep it as close as possible to the reference. Never generate random readable text.
+- If the exact text cannot be preserved, make it visually consistent and avoid adding new words.
+
+COMPOSITION:
+- Square 1:1 final image.
+- Target high quality 2K output.
+- Product should be positioned naturally, with enough margin around it for ecommerce use.
+- Do not cut off important parts of the product.
+- Create a finished image ready for internal ecommerce review.
+
+${sceneDirection}
+
+FINAL OUTPUT:
+Generate only one finished image. No explanations, no captions, no before/after, no text outside the image.
+`.trim();
+}
+
 export default async function handler(req, res) {
   cors(res);
 
@@ -177,23 +222,11 @@ export default async function handler(req, res) {
     const inputBuffer = Buffer.from(await pos1Response.arrayBuffer());
     const inputBase64 = inputBuffer.toString("base64");
 
-    const finalPrompt = `
-${prompt}
-
-Instrucciones adicionales para la generación IA:
-- Usa la imagen adjunta como referencia real del producto.
-- Mantén forma, proporciones, color, logos, textos, estampados, materialidad y detalles reales del producto.
-- No cambies el diseño del producto.
-- Genera UNA sola imagen final.
-- Crear una ambientación comercial realista, limpia, atractiva y apta para ecommerce.
-- Fondo y elementos coherentes con el uso del producto, sin saturar la escena.
-- El producto debe ser el protagonista.
-- Estilo fotográfico profesional.
-- No agregar texto extra ni marcas de agua.
-- Relación de aspecto 1:1.
-- Tamaño/calidad objetivo: 2K.
-- Esta es la opción ${finalOption} de 2, por lo tanto debe sentirse distinta a la otra propuesta.
-`.trim();
+    const finalPrompt = buildEnhancedPrompt({
+      prompt,
+      sku,
+      finalOption
+    });
 
     const { data: geminiData, mode } = await callGemini({
       finalPrompt,
